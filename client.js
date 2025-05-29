@@ -6,6 +6,7 @@ const fs = require('fs');
 const url = require('url');
 const MessageBuffer = require('./MessageBuffer');
 const config = require('./config');
+const logger = require('./Logger');
 
 class ProxyClient {
     constructor() {
@@ -17,12 +18,18 @@ class ProxyClient {
     }
 
     setupSSL() {
-        // Load SSL certificates if enabled
-        if (config.client.server.ssl.enabled) {
-            this.sslOptions = {
-                ca: fs.readFileSync(config.client.server.ssl.ca),
-                rejectUnauthorized: config.client.server.ssl.rejectUnauthorized
-            };
+        try {
+            // Load SSL certificates if enabled
+            if (config.client.server.ssl.enabled) {
+                this.sslOptions = {
+                    ca: fs.readFileSync(config.client.server.ssl.ca),
+                    rejectUnauthorized: config.client.server.ssl.rejectUnauthorized
+                };
+                logger.info('ssl', 'Client SSL certificates loaded');
+            }
+        } catch (error) {
+            logger.error('ssl', 'Failed to load SSL certificates', { error: error.message });
+            throw error;
         }
     }
 
@@ -34,7 +41,7 @@ class ProxyClient {
                     this.handleRequest(message);
                 }
             } catch (error) {
-                console.error('Error processing message:', error);
+                logger.error('error', 'Error processing message', { error: error.message });
             }
         });
     }
@@ -47,6 +54,11 @@ class ProxyClient {
             const regex = new RegExp(rule.pattern);
             if (regex.test(finalUrl)) {
                 finalUrl = finalUrl.replace(regex, rule.replacement);
+                logger.debug('proxy', 'URL rewritten', {
+                    original: requestUrl,
+                    rewritten: finalUrl,
+                    rule: rule.pattern
+                });
                 break;
             }
         }
@@ -61,6 +73,10 @@ class ProxyClient {
         // If URL is relative, prepend the default target
         if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
             targetUrl = new URL(targetUrl, config.client.proxy.defaultTarget).toString();
+            logger.debug('proxy', 'Relative URL converted to absolute', {
+                relative: requestData.url,
+                absolute: targetUrl
+            });
         }
 
         // Apply URL rewriting rules
@@ -69,6 +85,13 @@ class ProxyClient {
         // Parse the target URL
         const parsedUrl = url.parse(targetUrl);
         const isHttps = parsedUrl.protocol === 'https:';
+
+        logger.info('request', 'Making proxy request', {
+            method: requestData.method,
+            url: targetUrl,
+            protocol: parsedUrl.protocol,
+            requestId: requestData.requestId
+        });
 
         const options = {
             hostname: parsedUrl.hostname,
@@ -89,10 +112,18 @@ class ProxyClient {
             res.on('end', () => {
                 const body = Buffer.concat(chunks);
                 
+                logger.info('response', 'Received response from target', {
+                    statusCode: res.statusCode,
+                    contentLength: body.length,
+                    headers: res.headers,
+                    requestId: requestData.requestId
+                });
+
                 // Convert binary data to base64 for JSON transmission
                 const responseData = {
                     type: 'response',
                     clientId: requestData.clientId,
+                    requestId: requestData.requestId,  // Include requestId in response
                     statusCode: res.statusCode,
                     headers: res.headers,
                     body: body.toString('base64')  // Convert binary data to base64
@@ -103,10 +134,15 @@ class ProxyClient {
         });
 
         req.on('error', (error) => {
-            console.error('Error making request:', error);
+            logger.error('error', 'Error making proxy request', {
+                url: targetUrl,
+                error: error.message,
+                requestId: requestData.requestId
+            });
             const errorResponse = {
                 type: 'response',
                 clientId: requestData.clientId,
+                requestId: requestData.requestId,  // Include requestId in error response
                 statusCode: 500,
                 headers: {},
                 body: Buffer.from('Internal Server Error').toString('base64')
@@ -120,6 +156,9 @@ class ProxyClient {
                 requestData.body : 
                 Buffer.from(requestData.body);
             req.write(bodyBuffer);
+            logger.debug('request', 'Request body sent', {
+                size: bodyBuffer.length
+            });
         }
         req.end();
     }
@@ -128,13 +167,19 @@ class ProxyClient {
         const socketOptions = config.client.server.ssl.enabled ? this.sslOptions : {};
         this.socket = config.client.server.ssl.enabled ?
             tls.connect(this.serverPort, this.serverHost, socketOptions, () => {
-                console.log(`Connected to ${config.client.server.ssl.enabled ? 'secure' : ''} server at ${this.serverHost}:${this.serverPort}`);
+                logger.info('socket', `Connected to ${config.client.server.ssl.enabled ? 'secure' : ''} server`, {
+                    host: this.serverHost,
+                    port: this.serverPort
+                });
             }) :
             new net.Socket();
 
         if (!config.client.server.ssl.enabled) {
             this.socket.connect(this.serverPort, this.serverHost, () => {
-                console.log(`Connected to server at ${this.serverHost}:${this.serverPort}`);
+                logger.info('socket', 'Connected to server', {
+                    host: this.serverHost,
+                    port: this.serverPort
+                });
             });
         }
 
@@ -143,13 +188,15 @@ class ProxyClient {
         });
 
         this.socket.on('close', () => {
-            console.log('Connection closed');
+            logger.warn('socket', 'Connection closed, attempting to reconnect');
             // Attempt to reconnect after delay specified in config
             setTimeout(() => this.connect(), config.reconnection.delay);
         });
 
         this.socket.on('error', (error) => {
-            console.error('Socket error:', error);
+            logger.error('socket', 'Socket error', {
+                error: error.message
+            });
         });
     }
 }
