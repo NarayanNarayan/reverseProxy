@@ -1,0 +1,14 @@
+{
+  "name": "reverse-proxy",
+  "version": "1.0.0",
+  "description": "A reverse proxy implementation with client-server architecture",
+  "main": "server.js",
+  "scripts": {
+    "start:server": "node server.js",
+    "start:client": "node client.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  }
+} 
