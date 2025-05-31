@@ -49,7 +49,8 @@ func (mb *MessageBuffer) Consume(data []byte) {
 
 		// Process the message
 		if mb.onData != nil {
-			mb.onData(message)
+			// Call the callback asynchronously
+			go mb.onData(message)
 		}
 	}
 }
