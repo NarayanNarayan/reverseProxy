@@ -1,0 +1,52 @@
+{
+    "server": {
+        "http": {
+            "host": "0.0.0.0",
+            "port": 8080,
+            "ssl": {
+                "enabled": false,
+                "key": "server.key",
+                "cert": "server.crt"
+            }
+        },
+        "socket": {
+            "host": "0.0.0.0",
+            "port": 8081,
+            "ssl": {
+                "enabled": false,
+                "key": "server.key",
+                "cert": "server.crt"
+            }
+        }
+    },
+    "client": {
+        "server": {
+            "host": "localhost",
+            "port": 8081,
+            "ssl": {
+                "enabled": false,
+                "ca": "ca.crt",
+                "rejectUnauthorized": true
+            }
+        },
+        "proxy": {
+            "defaultTarget": "http://localhost:9090",
+            "ssl": {
+                "rejectUnauthorized": true
+            },
+            "rewriteRules": [
+                {
+                    "pattern": "^/api/(.*)",
+                    "replacement": "/v1/$1"
+                }
+            ]
+        }
+    },
+    "reconnection": {
+        "delay": 5000
+    },
+    "logging": {
+        "level": "info",
+        "file": "proxy.log"
+    }
+} 
